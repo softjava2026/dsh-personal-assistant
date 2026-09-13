@@ -28,7 +28,7 @@
     }
   },
   "scripts": {
-    "check": "for f in *.mjs servers/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && npm run check:version",
+    "check": "node scripts/check-syntax.mjs && npm run check:version",
     "check:version": "node --input-type=module -e \"import {readFileSync} from 'node:fs'; const {PLUGIN_VERSION} = await import('./config.mjs'); const v = JSON.parse(readFileSync('package.json','utf8')).version; if (PLUGIN_VERSION !== v) throw new Error('PLUGIN_VERSION ' + PLUGIN_VERSION + ' != package.json version ' + v); console.log('version ok', v);\"",
     "test": "npm run test:mcp && npm run test:digest",
     "test:mcp": "node servers/notes-mcp.mjs < test/notes-mcp.input.jsonl",

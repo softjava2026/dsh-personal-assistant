@@ -7,11 +7,15 @@ on:
 
 jobs:
   check:
-    name: check & smoke (Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    name: check & smoke (${{ matrix.os }} / Node ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # Windows 必须在矩阵里：宿主计划跑在 Windows 上，而 POSIX-only 的
+        # npm script、execFile 无法执行的 .cmd 垫片、硬编码 /tmp 这三类问题
+        # 在 ubuntu-only 的矩阵里永远暴露不出来。
+        os: [ubuntu-latest, windows-latest, macos-latest]
         # node:sqlite 在 Node 24+ 无需 flag；Node 22 需 --experimental-sqlite，
         # 因此 CI 只跑 24。
         node-version: ['24.x']
@@ -33,5 +37,6 @@ jobs:
 
       # test:apply 需要 DSH 宿主提供的 peer 依赖（@deepseek-ai/dsh-*），
       # CI 里没有，故不在流水线内运行；本地可用 DSH 的 node_modules 跑：
-      #   ln -sfn "$(npm root -g)/@deepseek-ai/dsh/node_modules" ./node_modules
+      #   macOS/Linux: ln -sfn "$(npm root -g)/@deepseek-ai/dsh/node_modules" ./node_modules
+      #   Windows:     mklink /D node_modules "%APPDATA%\npm\node_modules\@deepseek-ai\dsh\node_modules"
       #   npm run test:apply

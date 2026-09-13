@@ -16,13 +16,27 @@ const DWS_TIMEOUT_MS = 4000;
 
 // ------------------------------------------------------------------ dws 源
 
-/** 跑一条 dws 命令；失败/超时/未安装一律返回 null，不抛。 */
+/**
+ * 跑一条 dws 命令；失败/超时/未安装一律返回 null，不抛。
+ *
+ * Windows 注意：npm/包管理器安装的 CLI 是 `.cmd` 垫片，`execFile` 不经
+ * shell 无法执行它们（会稳定 ENOENT，被下面的 error 分支静默吞成"没数据"）。
+ * 因此 Windows 上必须开 shell 让 cmd.exe 解析。`bin`/`args` 来自插件配置
+ * （受信输入），不来自网络或模型输出，故不构成注入面。
+ */
+const NEEDS_SHELL = process.platform === "win32";
+
 function runDws(bin, args, timeoutMs = DWS_TIMEOUT_MS) {
   return new Promise(resolve => {
-    execFile(bin, args, { timeout: timeoutMs, maxBuffer: 1 << 20 }, (error, stdout) => {
-      if (error) return resolve(null);
-      resolve(String(stdout || ""));
-    });
+    execFile(
+      bin,
+      args,
+      { timeout: timeoutMs, maxBuffer: 1 << 20, shell: NEEDS_SHELL },
+      (error, stdout) => {
+        if (error) return resolve(null);
+        resolve(String(stdout || ""));
+      },
+    );
   });
 }
 
