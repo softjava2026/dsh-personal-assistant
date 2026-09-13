@@ -147,6 +147,34 @@ npm install -g @deepseek-ai/dsh
 dsh --version
 ```
 
+**关于安装末尾的 `allow-scripts` 警告 —— 大概率无害，不要急着重装。**
+
+新版 npm 默认拦截依赖的安装脚本，`npm install -g @deepseek-ai/dsh` 会警告 5 个包「install scripts not yet covered by allowScripts」。逐条核实过，对 `dsh web` + 本插件这条路径都不构成问题：
+
+| 包 | 脚本内容 | 判断 |
+|---|---|---|
+| `@deepseek-ai/dsh-subprocess-local` | postinstall 是 `ensure-spawn-helper.mjs`，**整个脚本只有一句 `chmodSync(helper, 0o755)`** | Windows **没有可执行位概念，纯空操作** |
+| `node-pty` | `prebuild.js \|\| node-gyp rebuild` | 包内**自带 `prebuilds/win32-x64` 与 `win32-arm64`**，无需本地编译 |
+| `@google/genai` | `echo 'preinstall: no-op'` | 作者自己标的空操作 |
+| `koffi` | `cnoke.cjs --prebuild` | 非 dsh 直接依赖；macOS 上同样无编译产物，但 `require` 正常 |
+| `protobufjs` | `node scripts/postinstall` | 可选代码生成，非运行时必需 |
+
+**先验证再决定**：跑 `dsh --version`，能打印版本号就继续往下走。
+
+只有当它报原生模块加载失败（`was compiled against a different Node.js version`、`Cannot find module ... .node` 之类）时，才需要补跑允许脚本：
+
+```powershell
+npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs @deepseek-ai/dsh
+```
+
+> 此时若掉进 `node-gyp rebuild`，Windows 上还需要 Visual Studio Build Tools + Python。**尽量避开这条路** —— 先确认真的需要再装。
+
+**关于版本**：`npm install -g` 不带版本号会装到最新，开发机与 host 可能出现版本漂移（例如 macOS 上是 `0.1.5-rc.1`、Windows 上是 `0.1.5-rc.2`）。插件的 peer 范围是 `>=0.1.0-rc.6 <0.2.0`，rc 级差异可接受；但若要把 host 固定到确定版本，加显式版本号：
+
+```powershell
+npm install -g @deepseek-ai/dsh@0.1.5-rc.2
+```
+
 ### 2.4 安装插件（钉到 Mac 刚推的 SHA）
 
 ```powershell
