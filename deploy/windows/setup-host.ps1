@@ -34,11 +34,14 @@ param(
   [string]$Profile  = "web",
   [string]$Repo     = "git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git",
   [string]$TaskName = "dsh-web-host",
-  [string]$LogPath  = "C:\dsh-host\dsh-web.log",
+  [string]$LogPath  = "D:\DSH_workspace\dsh-web.log",
 
   [switch]$SkipFirewall,
   [switch]$SkipPower,
-  [switch]$SkipTask
+  [switch]$SkipTask,
+
+  # 只有"不用 tailscale serve、直连 HTTP"时才需要入站规则。默认不需要。
+  [switch]$FirewallForDirectHttp
 )
 
 $ErrorActionPreference = "Stop"
@@ -122,16 +125,24 @@ Ok "插件层已注册（bundles 自动追加，无需手改 profile）"
 Step "3/4" "运行环境"
 
 if (-not $SkipFirewall) {
-  # DSH 的 host 只接受 127.0.0.1 / 0.0.0.0，没有"只绑 Tailscale 网卡"的选项，
-  # 所以"不暴露给局域网"只能靠防火墙把来源限制到 tailnet 的 CGNAT 网段。
-  $existing = Get-NetFirewallRule -DisplayName "dsh web (tailnet only)" -ErrorAction SilentlyContinue
-  if ($existing) {
-    Warn "防火墙规则已存在，跳过创建"
+  # 走 tailscale serve 时，dsh 只监听 127.0.0.1，局域网设备从网络层就连不上，
+  # 所以【不需要】任何入站规则。暴露给 tailnet 的只有 Tailscale 自己监听的 443，
+  # 它的安装程序已配好自己的防火墙规则。
+  #
+  # 仅当你【不用】tailscale serve、直接让手机连 http://<内网IP>:43120 时才需要下面这条，
+  # 且必须显式加 -FirewallForDirectHttp 才会执行 —— 那条路是明文 HTTP，慎用。
+  if ($FirewallForDirectHttp) {
+    $existing = Get-NetFirewallRule -DisplayName "dsh web (tailnet only)" -ErrorAction SilentlyContinue
+    if ($existing) {
+      Warn "防火墙规则已存在，跳过创建"
+    } else {
+      New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
+        -Direction Inbound -Protocol TCP -LocalPort $Port `
+        -RemoteAddress 100.64.0.0/10 -Action Allow | Out-Null
+      Ok "防火墙：仅允许 100.64.0.0/10（tailnet）访问 $Port（直连 HTTP 模式）"
+    }
   } else {
-    New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
-      -Direction Inbound -Protocol TCP -LocalPort $Port `
-      -RemoteAddress 100.64.0.0/10 -Action Allow | Out-Null
-    Ok "防火墙：仅允许 100.64.0.0/10（tailnet）访问 $Port"
+    Ok "防火墙：无需配置（tailscale serve 模式下 dsh 只监听 loopback）"
   }
 }
 
@@ -153,7 +164,7 @@ if (-not $SkipTask) {
   #     于是 ~/.dsh 解析到 systemprofile\.dsh，插件和凭据全都找不到
   #   - AtLogOn + 当前用户 无需密码且路径正确
   # 代价：需要机器自动登录。若要真正的"未登录也运行"，改用 NSSM 注册成服务。
-  $argLine  = "web --host 0.0.0.0 --port $Port --no-open --trusted-host $TailscaleName"
+  $argLine  = "web --host 127.0.0.1 --port $Port --no-open --trusted-host $TailscaleName"
   $action   = New-ScheduledTaskAction -Execute "dsh" -Argument $argLine
   $trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
   # ExecutionTimeLimit = 0 即不限时 —— 默认 3 天会被强杀，这一条很关键
@@ -179,21 +190,29 @@ $nextSteps = @"
        netplwiz  →  取消勾选"要使用本计算机，用户必须输入用户名和密码"
      或者改用 NSSM 把 dsh web 注册成真正的服务（未登录也运行）。
 
-  2. tailscale serve（拿到真 TLS 证书，手机侧就不用碰明文策略）：
+  2. 先在 Tailscale 管理后台开启 HTTPS 证书（serve 的前置条件）：
+       https://console.tailscale.com/admin/dns
+       → 确认 MagicDNS 已启用 → HTTPS Certificates 下点 Enable HTTPS
+     注意：开启后【机器名会进入公开的 Certificate Transparency 账本】，
+     所以先把机器名改成不含敏感信息的形式。
+
+  3. tailscale serve（拿到真 TLS 证书，手机侧就不用碰明文策略）：
        tailscale serve --bg --https=443 http://127.0.0.1:$Port
        tailscale serve status      # 确认名字与 -TailscaleName 一致
 
-  3. 启动一次并抓取配对令牌：
+  4. 启动一次并抓取配对令牌：
        New-Item -ItemType Directory -Force -Path (Split-Path "$LogPath") | Out-Null
-       dsh web --host 0.0.0.0 --port $Port --no-open --trusted-host $TailscaleName *> "$LogPath"
+       dsh web --host 127.0.0.1 --port $Port --no-open --trusted-host $TailscaleName *> "$LogPath"
      日志里找带 ?token= 的 URL，手机首次配对时粘贴。
      （令牌每次重启都变，但换来的 cookie 跨重启有效 —— 只需配对一次）
 
-  4. 手机浏览器验证：https://$TailscaleName/
+  5. 手机浏览器验证：https://$TailscaleName/
 
-  5. 安全验证（别跳过）：
+  6. 安全验证（别跳过）：
        - 关掉手机 Tailscale 后应连不上
-       - 局域网内其它设备访问 http://<本机局域网IP>:$Port 应被拒
+       - 局域网内其它设备访问 http://<本机局域网IP>:$Port 应【连接被拒绝】
+       - 本机 netstat -ano | findstr $Port 只应看到 127.0.0.1:$Port，
+         不应出现 0.0.0.0:$Port
 "@
 
 Write-Host $nextSteps

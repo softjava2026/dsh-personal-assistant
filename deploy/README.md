@@ -428,19 +428,25 @@ dsh --profile web --dump-config | Select-String -Context 0,8 "personal-assistant
 
 能看到 `personal-assistant-runtime` 组和配置项即为成功。
 
-### 2.6 防火墙 —— 最容易出事的一步
+### 2.6 防火墙 —— **不需要手动配置**
 
-DSH 的 `host` 配置**只接受 `127.0.0.1` / `0.0.0.0`**，没有"只绑 Tailscale 网卡"的选项。所以"不暴露给局域网"**只能靠防火墙收敛**：
+因为走 `tailscale serve`（见 §2.8），**`dsh web` 只监听 `127.0.0.1`，不碰 `0.0.0.0`** —— 局域网里的设备从网络层就连不上它。暴露给 tailnet 的只有 Tailscale 自己监听的 443，而它的安装程序已经配好了自己的防火墙规则。
 
-```powershell
-New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
-  -Direction Inbound -Protocol TCP -LocalPort 43120 `
-  -RemoteAddress 100.64.0.0/10 -Action Allow
-```
+**所以不需要 `New-NetFirewallRule`，也不会弹 Defender 授权框。**
 
-`100.64.0.0/10` 是 Tailscale 用的 CGNAT 网段 —— 只有 tailnet 内的设备能连。
-
-**如果首次启动时 Windows Defender 弹了授权框**：只勾"专用网络"，**绝不勾"公用网络"**。
+> ⚠️ **不要用 `--host 0.0.0.0`。** 那会让 dsh 监听所有网卡、把服务暴露给整个局域网，然后再想用防火墙拦回来 —— 等于自己制造风险再去弥补。Tailscale 官方文档也明确建议后端服务**只监听 localhost**：
+>
+> > it's best practice to only have the service listen on localhost. Otherwise, any user that can call your service directly (rather than with the Serve URL) could trivially provide their own values for these HTTP headers.
+>
+> **唯一需要 `0.0.0.0` + 防火墙规则的情况**：不打算用 `tailscale serve`，直接让手机连 `http://<内网IP>:43120`。那条路是明文 HTTP、无 TLS，且 dsh 自己的 cookie 不带 `Secure`，只在完全可信的内网里勉强可接受：
+>
+> ```powershell
+> New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
+>   -Direction Inbound -Protocol TCP -LocalPort 43120 `
+>   -RemoteAddress 100.64.0.0/10 -Action Allow
+> ```
+>
+> `100.64.0.0/10` 是 Tailscale 的 CGNAT 网段。走了这条路才需要勾"专用网络"的 Defender 授权框（**绝不勾"公用网络"**）。
 
 ### 2.7 电源与系统更新 —— 否则 host 会随机离线
 
@@ -460,32 +466,58 @@ powercfg /h off                           # 关闭休眠（同时关掉"快速�
 - 笔记本另设"合盖不睡眠"
 - 关闭"按电源按钮睡眠"
 
-### 2.8 Tailscale
+### 2.8 Tailscale 与 HTTPS 证书
+
+**第 1 步：装好并登录**
 
 ```powershell
 # 安装 https://tailscale.com/download/windows，登录与手机同一个 tailnet
 tailscale status
-tailscale serve --bg --https=443 http://127.0.0.1:43120
-tailscale serve status        # 记下输出的 https://<pc>.<tailnet>.ts.net 名字
 ```
 
-**为什么用 `tailscale serve` 而不是明文 HTTP**：拿到真 TLS 证书（鸿蒙侧不用碰明文策略）、cookie 能带 `Secure`、且只在 tailnet 内可达。鸿蒙 NEXT **默认允许明文 HTTP**（与 Android 相反），所以这纯粹是安全选择，不是平台限制。
+**第 2 步：在管理后台开启 HTTPS 证书** —— 这是 `tailscale serve` 的**前置条件**：
+
+1. 打开 admin console 的 [DNS 页面](https://console.tailscale.com/admin/dns)
+2. 确认 **MagicDNS** 已启用
+3. 在 **HTTPS Certificates** 下点 **Enable HTTPS**
+4. 确认同意「机器名与 tailnet DNS 名会发布到公开账本」
+
+> 若跳过这步直接跑 `tailscale serve`，它会输出一个链接引导你在浏览器里授权。**第一次别加 `--bg`**，让它走完交互流程把 HTTPS 开起来。
+
+**第 3 步：起反向代理**
+
+```powershell
+tailscale serve --bg --https=443 http://127.0.0.1:43120
+tailscale serve status        # 记下 https://<machine>.<tailnet>.ts.net
+```
+
+> ⚠️ **隐私提示（官方文档明确警告）**：开启 HTTPS 后，**机器名会被写进公开的 Certificate Transparency 账本，任何人都能查**。
+>
+> > Do not enable the HTTPS feature if any of your machine names contain sensitive information.
+>
+> 所以**先去 admin console 把机器名改成不含敏感信息的形式**（比如 `dsh-host`），再开 HTTPS。默认机器名往往是 `DESKTOP-XXXXXXX` 这类，一般不敏感，但你自己确认一下。
+
+**为什么用 `serve` 而不是明文 HTTP**：拿到真 TLS 证书（鸿蒙侧不用碰明文策略）、cookie 能带 `Secure`、只在 tailnet 内可达，而且**后端可以只监听 loopback**（见 §2.6）。鸿蒙 NEXT **默认允许明文 HTTP**（与 Android 相反），所以这纯粹是安全选择，不是平台限制。
+
+**附带能力**：`serve` 会在转发给后端的请求上添加 `Tailscale-User-Login` / `Tailscale-User-Name` 等身份头（仅 tailnet 流量，Funnel 没有）。将来若要做"不只是网络可达、还要身份校验"这一层，可以直接用。注意它会剥掉客户端伪造的同名头，所以后端可以信任它们。
 
 ### 2.9 启动 host
 
 ```powershell
-$TsName = "<pc>.<tailnet>.ts.net"     # 来自上一步 tailscale serve status
+$TsName = "<machine>.<tailnet>.ts.net"     # 来自 tailscale serve status
 
-dsh web --host 0.0.0.0 --port 43120 --no-open --trusted-host $TsName *> C:\dsh-host\dsh-web.log
+dsh web --host 127.0.0.1 --port 43120 --no-open --trusted-host $TsName *> D:\DSH_workspace\dsh-web.log
 ```
 
-`--trusted-host` 是**必需的**：`dsh-client-connection` 在认证之前先过 `api-request-trust`，要求请求的 `Host` 头是 loopback 或精确命中白名单。如果 serve 把 Host 改写成 `127.0.0.1`，这条就是冗余的 —— **两种情况都设它是安全的**。
+**`--host 127.0.0.1` 就够了** —— 外部流量由 `tailscale serve` 从 loopback 转发进来（理由见 §2.6）。
 
-**启动令牌**：`dsh web` 每次启动会打印一个带 `?token=` 的 URL（日志里能找到）。这个令牌每次重启都变，但用它交换到的 bearer cookie 由 `$DSH_HOME/.credentials.yaml` 的签名密钥签发，**跨重启有效**。所以：
+`--trusted-host` 是**必需的**：`dsh-client-connection` 在认证之前先过 `api-request-trust`，要求请求的 `Host` 头是 loopback 或精确命中白名单。serve 转发时会保留原来的 Host（`<machine>.<tailnet>.ts.net`），所以必须登记它。
+
+**启动令牌**：`dsh web` 每次启动会打印一个带 `?token=` 的 URL（日志里能找到）。这个令牌每次重启都变，但用它交换到的 bearer cookie 由 `$DSH_HOME\.credentials.yaml` 的签名密钥签发，**跨重启有效**。所以：
 
 - 手机只需在**首次配对**时粘贴一次那条 URL
 - 之后计划任务重启 host，**app 不需要重新配对**
-- 只有 `%USERPROFILE%\.dsh\.credentials.yaml` 被删掉时，才需要重新配对
+- 只有 `$DSH_HOME\.credentials.yaml` 被删掉时，才需要重新配对
 
 ### 2.10 注册开机自启
 
@@ -498,7 +530,7 @@ dsh web --host 0.0.0.0 --port 43120 --no-open --trusted-host $TsName *> C:\dsh-h
 | **`-AtLogOn` + 当前用户** ✅ | 无需密码、路径正确。代价是需要配自动登录（或用 NSSM 注册成服务） |
 
 ```powershell
-$ArgLine  = "web --host 0.0.0.0 --port 43120 --no-open --trusted-host <pc>.<tailnet>.ts.net"
+$ArgLine  = "web --host 127.0.0.1 --port 43120 --no-open --trusted-host <machine>.<tailnet>.ts.net"
 $Action   = New-ScheduledTaskAction -Execute "dsh" -Argument $ArgLine
 $Trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
 $Settings = New-ScheduledTaskSettingsSet -RestartCount 3 `
@@ -520,7 +552,7 @@ netplwiz  →  取消勾选「要使用本计算机，用户必须输入用户�
 
 如果需要真正的"未登录也运行"，改用 [NSSM](https://nssm.cc/) 把 `dsh web` 注册成 Windows 服务 —— 但此时必须显式设置 `DSH_HOME` 环境变量指向真实用户目录，否则会撞上上面 SYSTEM 的那个坑。
 
-需要用**管理员** PowerShell 执行。首跑后到「任务计划程序」里确认状态，并检查 `C:\dsh-host\dsh-web.log`。
+需要用**管理员** PowerShell 执行。首跑后到「任务计划程序」里确认状态，并检查 `D:\DSH_workspace\dsh-web.log`。
 
 **本脚本化**：`deploy\windows\setup-host.ps1` 把 §2.3–§2.10 串成一步（⚠️ 尚未在真实 Windows 上实测，首次部署建议先按本文手动走一遍）。
 
@@ -531,7 +563,7 @@ netplwiz  →  取消勾选「要使用本计算机，用户必须输入用户�
 Mac 上发布后，Windows 上**一条命令**：
 
 ```powershell
-cd C:\dsh-host\dsh-personal-assistant
+cd D:\DSH_workspace\dsh-personal-assistant
 .\deploy\windows\update-plugin.ps1
 ```
 
@@ -575,13 +607,14 @@ Start-ScheduledTask -TaskName "dsh-web-host"
 | # | 检查 | 期望 |
 |---|---|---|
 | 1 | `dsh --profile web --dump-config \| Select-String personal-assistant` | 出现 `personal-assistant-runtime` |
-| 2 | 手机上打开 `https://<pc>.<tailnet>.ts.net/` | DSH Web GUI 正常加载 |
+| 2 | 手机上打开 `https://<machine>.<tailnet>.ts.net/` | DSH Web GUI 正常加载 |
 | 3 | 手机 Tailscale 关闭后再打开该 URL | 连不上（证明确实只在 tailnet 内） |
-| 4 | 局域网内另一台设备访问 `http://<pc局域网IP>:43120` | **被拒**（`trusted-host` 栅栏生效） |
-| 5 | host 重启后，app 里对话仍可用 | 不用重新配对（cookie 跨重启有效） |
-| 6 | Windows 重启后 | 计划任务自动拉起 `dsh web` |
+| 4 | 局域网内另一台设备访问 `http://<host局域网IP>:43120` | **连接被拒绝**（dsh 只监听 loopback，端口根本没对外开） |
+| 5 | 在 host 本机跑 `netstat -ano \| findstr 43120` | 只应看到 `127.0.0.1:43120`，**不应出现 `0.0.0.0:43120`** |
+| 6 | host 重启后，app 里对话仍可用 | 不用重新配对（cookie 跨重启有效） |
+| 7 | Windows 重启后 | 计划任务自动拉起 `dsh web` |
 
-第 3、4 条是**安全验证**，别跳过。
+第 3、4、5 条是**安全验证**，别跳过。第 5 条是最直接的证据 —— 它一眼就能看出有没有把服务暴露到 loopback 之外。
 
 ---
 
