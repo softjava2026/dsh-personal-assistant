@@ -170,15 +170,29 @@ Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
   ```powershell
   Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
   ```
-- `False` → 生成一把。**用下面的非交互写法，不要用裸的 `ssh-keygen`**：
+- `False` → 生成一把：
   ```powershell
   New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.ssh" | Out-Null
-  ssh-keygen -t ed25519 -C "dsh-host-windows" -f "$env:USERPROFILE\.ssh\id_ed25519" -N ""
-  Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+  ssh-keygen -t ed25519 -C "dsh-host-windows" -f "$env:USERPROFILE\.ssh\id_ed25519"
   ```
 
-  - `-f` 指定保存路径、`-N ""` 指定空口令 —— **两个提示符都被消掉，命令不会停下来等人输入**
-  - 若仍提示 `already exists. Overwrite (y/n)?`，输入 `n`（已有密钥就够用），再单独执行 `Get-Content`
+  然后**只按两次回车**：
+
+  - `Enter passphrase (empty for no passphrase):` → 回车
+  - `Enter same passphrase again:` → 回车
+
+  `-f` 已经消掉了"保存到哪个文件"的提示符，所以只剩这两个。若提示 `already exists. Overwrite (y/n)?`，输入 `n`（已有密钥就够用）。
+
+  **然后验证密钥确实没有口令** —— 这一步能抓住下面第 2 个坑：
+  ```powershell
+  ssh-keygen -y -f "$env:USERPROFILE\.ssh\id_ed25519"
+  ```
+  能**直接打印出公钥而不询问口令**，才算对。
+
+> ⚠️ **两个 PowerShell 专属的坑，都真实踩过：**
+>
+> 1. **不要用 `-N ""`。** Windows PowerShell 5.1 向外部程序传参时**会丢掉空字符串参数**，`-N ""` 变成光秃秃一个 `-N`，报 `option requires an argument -- N`。（PowerShell 7 已修此问题。）
+> 2. **绝对不要用 `-N '""'`。** 这是网上流传最广的"解决办法"，但**实测它是错的**：ssh-keygen 会把口令设成**两个引号字符**，密钥被加密。你会得到一个"看起来正常、实际需要密码短语"的密钥 —— 而常驻服务没人能输入口令，**开机自启会静默失败**。上面那条 `ssh-keygen -y` 能立刻验出来（会反过来问你要口令）。
 
 > ⚠️ **失败模式（真实踩过）**：把 `ssh-keygen -t ed25519 -C "..."` 和下一行 `Get-Content ...` 一起粘贴。`ssh-keygen` 是交互式的，会把**后续每一行都当成对提示符的回答** —— 于是它试图把密钥存到一个名为 `Get-Content "$env:USERPROFILE\..."` 的非法路径，报 `Saving key ... failed: No such file or directory`，**密钥根本没生成**。看到这个报错别往权限上想，是输入被吃掉了。
 >
