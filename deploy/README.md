@@ -466,7 +466,57 @@ powercfg /h off                           # 关闭休眠（同时关掉"快速�
 - 笔记本另设"合盖不睡眠"
 - 关闭"按电源按钮睡眠"
 
-### 2.8 Tailscale 与 HTTPS 证书
+### 2.8 远程访问 —— 两条路，**优先走插件**
+
+**先给结论：只是想让鸿蒙手机用上 DSH，就不要装 Tailscale。**
+
+官方 Tailscale **没有鸿蒙 NEXT 客户端**（[tailscale#18207](https://github.com/tailscale/tailscale/issues/18207) 至今仍是 feature request）。社区移植 [`flypigJ/Tailscale-OHOS`](https://github.com/flypigJ/Tailscale-OHOS) 自称 *"engineering MVP, **not a release-ready consumer application**"*，并且 **MagicDNS 被禁用** —— 而 `tailscale serve` 签发的证书是给 DNS 名字的，两者组合不起来。这条路要么自己去编译一个 MVP 客户端，要么走不通。
+
+**推荐：`@linxin666/dsh-remote-web-ui` 插件。** 它把本手册前面所有手工步骤都产品化了：
+
+| 本手册手工做的 | 插件已有 |
+|---|---|
+| 手配 `--host` / `--trusted-host` | 设置卡片里一个**局域网绑定开关**（写 profile 的 `cordis.patch.yml`） |
+| 手工建防火墙规则 | 插件**自己维护**（Windows 经 `netsh`） |
+| 粘贴 `?token=` URL 配对 | **扫码配对**，一次性令牌 + 可吊销设备会话 |
+| 手机上看桌面版界面 | **竖屏触控适配层**（手势、触控目标、Enter 只换行、隐藏桌面工具面） |
+| 手工 `tailscale serve` | **一键 Cloudflare 快速隧道**（`cloudflared` 随包分发） |
+| — | **固定域名中继** `https://<id>.dsh-market.com`，**主机名永不变**，配对一次跨重启有效 |
+
+**手机侧不需要装任何 VPN 客户端** —— 浏览器即可（我们自己的 app 里就是 WebView）。**鸿蒙没有 Tailscale 客户端这个问题因此不存在。**
+
+安装（npm 公开包，**不走 GitHub SSH**，`engines` 都满足：Node `>=24`、dsh `>=0.1.5-rc.1`）：
+
+```powershell
+dsh plugin --profile web add @linxin666/dsh-remote-web-ui
+```
+
+然后在 `dsh web` 里点侧栏底部的手机图标，扫码。
+
+#### 三条隧道，信任模型不同
+
+| 方案 | 主机名 | 流量经过 | 适合 |
+|---|---|---|---|
+| 一键快速隧道 **+ 固定域名中继** | `https://<id>.dsh-market.com`（永久） | **包作者运营的 Cloudflare Worker** | 最省事，无需域名/账号 |
+| **命名隧道**（自带域名） | 你自己的域名（永久） | 只有 Cloudflare | 有域名，想避开第三方中继 |
+| **只用局域网绑定** | `<内网IP>:43120` | 你的内网 | 只在家用、网络完全可信 |
+
+> ⚠️ **中继的信任代价（README 自己写明）**：开启中继时，手机访问的是 dsh-market 的 Cloudflare Worker，它**逐字节转发**请求，因此**作者的基础设施可以看到这些流量** —— 与 Cloudflare 对裸 `trycloudflare.com` 的可见性相同。配对 Cookie 与应用层校验仍留在你的实例上，worker 不终结配对。介意就走命名隧道，或只在内网用。
+
+#### 两条必须知道的安全边界
+
+README 的安全模型里有两条不能忽略：
+
+> **配对不门控直连 `/api`。** ... 来自局域网源头的直连 `/api` 仅由 harness 围栏（`0.0.0.0` 绑定下自动信任局域网字面量）加 harness 浏览器认证 cookie 约束。
+
+所以**"局域网绑定"是要认真做的决定，不是随手一开**。插件自己的建议是：*"请把局域网绑定当作深思熟虑的决定，在共享机器上优先回环加隧道。"*
+
+- **配对设备是完全控制凭据** —— 可达完整 host API（聊天、会话、设置、**凭据**、产出物）。只配对你自己的设备。
+- **撤销约束的是 `/remote` 通道与配对 cookie，不是 harness 浏览器凭据** —— 设备兑换过的浏览器凭据在取消配对后仍有效，直到自然过期（默认 30 天）。
+
+### 2.8b 备选：Tailscale 与 HTTPS 证书
+
+**只有当你确实需要"自建、不经第三方"的内网互通时才走这条路**，且要接受手机侧需自行编译客户端（见 §2.8 开头）。
 
 **第 1 步：装好并登录**
 
