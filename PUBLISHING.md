@@ -1,17 +1,16 @@
 # 发布清单
 
-## 0. 先替换占位符
+## 0. ~~替换占位符~~ ✅ 已完成
 
-| 文件 | 占位符 | 替换为 |
-|---|---|---|
-| `package.json` | `OWNER` | 你的 GitHub 用户名（repository / homepage / bugs / author 共 4 处）|
-| `LICENSE` | `OWNER` | 你的名字或组织名 |
-| `README.md` | — | 补上仓库地址 |
+已替换为 **`softjava2026`**：`package.json` 4 处（repository / homepage / bugs / author）+ `LICENSE` 1 处。
+
+<details><summary>原始步骤（换账号时参考）</summary>
 
 ```bash
-# 一键替换（macOS sed 需要 -i ''）
-sed -i '' 's/OWNER/<你的用户名>/g' package.json LICENSE
+sed -i '' 's/OWNER/<你的 GitHub 用户名>/g' package.json LICENSE
 ```
+
+</details>
 
 ## 1. 本地验收
 
@@ -25,15 +24,16 @@ npm run test:apply
 unlink ./node_modules
 ```
 
-## 2. 建仓并推送
+## 2. ~~建仓并推送~~ ✅ 已完成
+
+- 仓库：<https://github.com/softjava2026/dsh-personal-assistant>
+- 远程：`git@github.com:softjava2026/dsh-personal-assistant.git`
+- 首次提交：`7400bd0`
+
+后续更新只需：
 
 ```bash
-git init
-git add -A
-git commit -m "feat: dsh-personal-assistant 0.1.0 (M0 + M1)"
-git branch -M main
-git remote add origin git@github.com:<你的用户名>/dsh-personal-assistant.git
-git push -u origin main
+git add -A && git commit -m "..." && git push
 ```
 
 ## 3. 打 `dsh-plugin` topic ⭐（关键）
