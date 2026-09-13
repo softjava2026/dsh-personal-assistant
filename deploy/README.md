@@ -69,6 +69,31 @@ git push origin main && git push origin vX.Y.Z
 
 ## 2. Windows 侧：首次安装
 
+### 2.0 先切到 PowerShell
+
+**本节及以后所有命令都是 PowerShell，不是 `cmd.exe`。** 两者语法不通用 —— `Get-Command`、`Test-Path`、`Get-Content`、`New-NetFirewallRule` 这类在 cmd 里会报「不是内部或外部命令，也不是可运行的程序」。
+
+判断自己在哪个 shell，看提示符：
+
+| 提示符 | shell |
+|---|---|
+| `d:\DSH_workspace>` | **cmd.exe** ❌ |
+| `PS D:\DSH_workspace>` | PowerShell ✅ |
+
+**最快切换方式**：在当前的 cmd 窗口里直接敲
+
+```powershell
+powershell
+```
+
+会进入 PowerShell 并**保持当前目录**。其他方式：`Win + X` → 「终端」/「Windows PowerShell」，或开始菜单搜 PowerShell。
+
+> **注意区分**：`node` / `npm` / `pnpm` / `dsh` / `git` / `ssh` 这些是**外部程序，在 cmd 和 PowerShell 里都能跑**。所以体检里那几条在 cmd 里成功是正常的；只有 PowerShell 专有的 cmdlet（`Get-Command`、`Test-Path` 等）才会失败。**别因为部分命令能跑就以为 shell 无所谓。**
+
+后面涉及**防火墙、电源、计划任务**的步骤（§2.6 / §2.7 / §2.10）需要**管理员 PowerShell**：开始菜单搜 `PowerShell` → 右键 → **以管理员身份运行**。
+
+> `dsh plugin add`（§2.4）**不需要**管理员权限，用普通 PowerShell 跑即可 —— 它只写 `%USERPROFILE%\.dsh\`。
+
 ### 2.1 环境体检（只读，**先跑这个**）
 
 六条命令**都不改变系统状态**，跑完把输出贴出来即可定位问题。别急着装东西。
