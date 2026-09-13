@@ -114,7 +114,7 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 | `node -v` | `v24.x` 或更高 | 从 https://nodejs.org 装 LTS。插件用 `node:sqlite`，Node 22.5 才有且需 flag |
 | `pnpm -v` | 任意版本号 | `npm install -g pnpm`（`dsh plugin` 本质是 pnpm 的转发器） |
 | `dsh --version` | 任意版本号 | `npm install -g @deepseek-ai/dsh` |
-| `ssh -T git@github.com` | `Hi softjava2026! You've successfully authenticated` | 见 §2.2 配 Deploy key。⚠️ **该命令成功时也返回 exit 1，这是 GitHub 的正常行为，不是失败** |
+| `ssh -T git@github.com` | `Hi softjava2026/dsh-personal-assistant! You've successfully authenticated`（**Deploy key 打招呼的是仓库名**，账号级 key 才是用户名） | 见 §2.2 配 Deploy key。⚠️ **该命令成功时也返回 exit 1，这是 GitHub 的正常行为，不是失败** |
 | `tailscale status` | 本机与手机都在线 | 装 https://tailscale.com/download/windows，登录同一 tailnet |
 | `git ls-remote --tags` | 列出 `refs/tags/v0.1.1`、`refs/tags/v0.1.2` | 说明 SSH 凭据没生效（这条**完全走 SSH，与 npm registry 无关**，能精确区分两类网络问题） |
 
@@ -329,13 +329,40 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 
 **关于两条常见警告：**
 
+- `dsh: git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed — add ... under allowBuilds` —— **这条是红鲱鱼**。只要 pnpm 命令行里出现 git spec，DSH 在**任何** pnpm 失败时都会打印它，它**不是对本次失败原因的诊断**。本插件没有 `prepare` 脚本，用不到 `allowBuilds`。看到它时请忽略，去看 pnpm 真正的报错。（`allowBuilds` 这个机制本身是真的 —— 将来若给插件加了构建步骤，需把 pnpm 打印的**确切 key** 写进 profile 的 `pnpm-workspace.yaml`，形如 `allowBuilds: { dsh-personal-assistant: true }`。）
 - `[WARN] Issues with peer dependencies found` —— **预期内，无害**。profile 的 `pnpm-workspace.yaml` 里 `autoInstallPeers: false`，`@deepseek-ai/dsh-llm` 等 peer 由 DSH 自己的 `~/.dsh/profiles/node_modules` 提供（已核实三个 peer 都在）。`--dump-config` 能成功解析该层即为证明。
-- `git-hosted plugins build on install via their prepare script, which pnpm blocks until allowed` —— **本插件不会触发**，因为 `package.json` 里**没有 `prepare` 脚本**。将来若加了构建步骤，需把 pnpm 打印的 key 写进 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds`：
 
-  ```yaml
-  allowBuilds:
-    dsh-personal-assistant: true
-  ```
+#### HTTPS 不通时（`ERR_PNPM_GIT_RESOLVE_FAILED`）
+
+**症状**：`Failed to resolve git dependency ...: git ls-remote failed: fatal: unable to access 'https://github.com/...': Failed to connect to github.com:443`
+
+**成因**：即使 spec 写的是 `git+ssh://`，pnpm 在解析阶段也可能走 **HTTPS**（因为它记录的 URL 要能在所有机器上工作）。而这台机器**SSH(22) 通、HTTPS(443) 被挡** —— 一个很常见的网络环境。
+
+**pnpm 官方推荐的解法**是让 git 就地替换传输协议，而不改 spec：
+
+```powershell
+git config --global url."git@github.com:".insteadOf "https://github.com/"
+```
+
+这会让**所有** `https://github.com/...` 在 git 层被改写成 `git@github.com:...`，走 SSH。
+
+验证改写已生效：
+
+```powershell
+git config --global --get-regexp "url\..*insteadOf"
+```
+
+> **副作用要知道**：这是全局配置，影响这台机器上所有 git 操作。若以后有仓库只能用 HTTPS+token 访问（没有对应 SSH 权限），会被这条规则挡到 —— 那时用 `git config --global --unset url."git@github.com:".insteadOf` 移除即可。
+
+**URL 形式对照（容易写错）**：
+
+| 场景 | 正确写法 |
+|---|---|
+| 带 scheme（`dsh plugin add` 用这个） | `git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git#v0.1.2` ← **斜杠** |
+| 不带 scheme 的 scp 风格（`git ls-remote` 用这个） | `git@github.com:softjava2026/dsh-personal-assistant.git` ← **冒号** |
+| ❌ 混用（scheme 配冒号） | `git+ssh://git@github.com:softjava2026/...` —— `softjava2026` 会被当成**端口号**，git 会去连一个不存在的地址 |
+
+**关于第一次失败留下的半成品**：`dsh: initialized profile web at ...` 说明 profile 已按内置模板建好了（`dsh-base` + `dsh-web-app`），只是插件没装上。**直接重跑即可**，不会重复初始化。
 
 ### 2.5 验证插件层已被识别
 
@@ -507,6 +534,7 @@ Start-ScheduledTask -TaskName "dsh-web-host"
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `ERR_PNPM_FETCH_404 ... repo.harmonyos.com` | npm registry 被指到了失效的鸿蒙源 | 检查 `%USERPROFILE%\.npmrc`，应为 `registry=https://registry.npmjs.org/` |
+| `ERR_PNPM_GIT_RESOLVE_FAILED` + `Failed to connect to github.com:443` | **pnpm 用 HTTPS 解析 git 依赖，而这台机器 HTTPS 不通**（SSH 通但 443 被挡） | 见 §2.4 的「HTTPS 不通时」小节。核心是让 git 把 GitHub 的 HTTPS 就地改写成 SSH |
 | `pnpm not found on PATH` | 没装 pnpm | `npm install -g pnpm` |
 | `ssh -T git@github.com` 失败 | Windows 上没有可用密钥 | 见 §2.2 |
 | 手机能连 tailnet 但打不开 GUI | `--trusted-host` 名字写错 | 用 `tailscale serve status` 里的**确切**名字 |
