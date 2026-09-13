@@ -169,11 +169,20 @@ npm install -g --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,
 
 > 此时若掉进 `node-gyp rebuild`，Windows 上还需要 Visual Studio Build Tools + Python。**尽量避开这条路** —— 先确认真的需要再装。
 
-**关于版本**：`npm install -g` 不带版本号会装到最新，开发机与 host 可能出现版本漂移（例如 macOS 上是 `0.1.5-rc.1`、Windows 上是 `0.1.5-rc.2`）。插件的 peer 范围是 `>=0.1.0-rc.6 <0.2.0`，rc 级差异可接受；但若要把 host 固定到确定版本，加显式版本号：
+**关于版本**：`npm view @deepseek-ai/dsh dist-tags` 显示三个通道：
 
-```powershell
-npm install -g @deepseek-ai/dsh@0.1.5-rc.2
 ```
+latest: 0.1.5-rc.1      ← npm install -g 默认拿这个
+next  : 0.1.5-rc.2      ← 已发布，但走 next 通道，不会被默认装上
+alpha : 0.1.5-alpha.2
+```
+
+所以**不带版本号的 `npm install -g @deepseek-ai/dsh` 在多台机器上会得到一致的版本**（已实测：macOS 与 Windows 均为 `0.1.5-rc.1`，且 `dsh-subprocess-local` / `node-pty` / `koffi` / `@google/genai` / `protobufjs` 五个子包版本逐一对齐）。
+
+这带来的实际规则：
+
+- **日常重装 host 时不要加 `@next` 或 `@alpha`** —— 那会把 host 推到候选通道，而插件的 peer 范围是 `>=0.1.0-rc.6 <0.2.0`，核心一旦越界（如 0.2.x），钉在 `<0.2.0` 的插件会**集体失效**。
+- 需要绝对确定性时显式钉版本：`npm install -g @deepseek-ai/dsh@0.1.5-rc.1`。
 
 ### 2.4 安装插件（钉到 Mac 刚推的 SHA）
 
