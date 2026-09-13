@@ -276,12 +276,21 @@ alpha : 0.1.5-alpha.2
 - **日常重装 host 时不要加 `@next` 或 `@alpha`** —— 那会把 host 推到候选通道，而插件的 peer 范围是 `>=0.1.0-rc.6 <0.2.0`，核心一旦越界（如 0.2.x），钉在 `<0.2.0` 的插件会**集体失效**。
 - 需要绝对确定性时显式钉版本：`npm install -g @deepseek-ai/dsh@0.1.5-rc.1`。
 
-### 2.4 安装插件（钉到 Mac 刚推的 SHA）
+### 2.4 安装插件（钉到发布 tag）
 
 ```powershell
-$Sha = "<第 1 步 git rev-parse HEAD 的输出>"
-dsh plugin --profile web add "git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git#$Sha"
+dsh plugin --profile web add "git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git#v0.1.2"
 ```
+
+把 `v0.1.2` 换成目标 tag。列出可用 tag：
+
+```powershell
+git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.git
+```
+
+> **`web` profile 不存在时会自动按内置模板初始化，不需要额外步骤。** 源码里 `PROFILE_TEMPLATES` 的注释是 *"The shipped profile templates auto-initialized on first use, by name"*，其中 `web` 对应 `bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]`、`patchReload: "live"`。所以首次 `dsh plugin --profile web add` 建出来的就是完整可用的 web profile。
+>
+> ⚠️ 但**自定义名字不会**：`PROFILE_TEMPLATES` 只认 `acp` / `web` / `headless` / `sdk` / `sdk-minimal`。其他名字会落到 `DEFAULT_PROFILE_BUNDLES = ["@deepseek-ai/dsh-base"]` —— 只有 base，**没有 web app，`dsh web` 起不来**。所以务必用 `web`。
 
 **这一步已在 macOS 上端到端验证过**（2026-09 于 commit `fdb927a`），实测结果：
 
