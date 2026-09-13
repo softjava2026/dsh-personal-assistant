@@ -36,9 +36,24 @@ unlink ./node_modules
 git add -A && git commit -m "..." && git push
 ```
 
-## 3. 打 `dsh-plugin` topic ⭐（关键）
+> ⚠️ **可见性**：仓库创建时是 **Public**。项目成熟前请改成 **Private** —— 见下方第 3 步。
 
-GitHub 仓库页 → About 齿轮 → **Topics**，加入：
+## 3. ⏸ 暂缓：先保持私有 + 不加 topic
+
+**当前决定（2026-09-13）**：项目还不成熟，**先不对外公开**。
+
+| 动作 | 状态 |
+|---|---|
+| 仓库可见性 → **Private** | ⬜ 待办（Settings → Danger Zone → Change repository visibility）|
+| 加 `dsh-plugin` topic | 🚫 **不加** |
+| `package.json` 的 `dsh-plugin` 关键词 | ✅ 保留（只在 npm 上生效，未发 npm 前无影响）|
+
+改私有后：你本地 push/pull 照常，SSH 配置不受影响；社区与 GitHub 搜索都看不到。
+
+### 成熟后再公开（两步）
+
+1. Settings → Danger Zone → **Change repository visibility** → 改回 **Public**
+2. 仓库页 → About 齿轮 → **Topics**，加入：
 
 ```
 dsh-plugin
@@ -53,7 +68,9 @@ agent
 [Awesome-DeepSeek-Harness-Plugins](https://github.com/Zhiyuan-Fan/Awesome-DeepSeek-Harness-Plugins)
 才能发现你的插件。
 
-## 4. 发布到 npm（可选）
+## 4. ⏸ 暂缓：发布到 npm（可选）
+
+> 发布到 npm 后会带 `dsh-plugin` 关键词，**同样会被社区检索到**。项目成熟前先别发。
 
 ```bash
 npm login
