@@ -69,14 +69,33 @@ git push origin main && git push origin vX.Y.Z
 
 ## 2. Windows 侧：首次安装
 
-### 2.1 前置检查
+### 2.1 环境体检（只读，**先跑这个**）
+
+六条命令**都不改变系统状态**，跑完把输出贴出来即可定位问题。别急着装东西。
 
 ```powershell
-node -v      # 必须 >= 24。插件用 node:sqlite（Node 22.5 才有且需 flag）
-pnpm -v      # 必须存在。dsh plugin 本质是 pnpm 的转发器
+node -v
+pnpm -v
+dsh --version
+ssh -T git@github.com
+tailscale status
+git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.git
 ```
 
-任何一个缺失就先装：
+对照表：
+
+| 命令 | 期望 | 不满足时怎么办 |
+|---|---|---|
+| `node -v` | `v24.x` 或更高 | 从 https://nodejs.org 装 LTS。插件用 `node:sqlite`，Node 22.5 才有且需 flag |
+| `pnpm -v` | 任意版本号 | `npm install -g pnpm`（`dsh plugin` 本质是 pnpm 的转发器） |
+| `dsh --version` | 任意版本号 | `npm install -g @deepseek-ai/dsh` |
+| `ssh -T git@github.com` | `Hi softjava2026! You've successfully authenticated` | 见 §2.2 配 Deploy key。⚠️ **该命令成功时也返回 exit 1，这是 GitHub 的正常行为，不是失败** |
+| `tailscale status` | 本机与手机都在线 | 装 https://tailscale.com/download/windows，登录同一 tailnet |
+| `git ls-remote --tags` | 列出 `refs/tags/v0.1.1`、`refs/tags/v0.1.2` | 说明 SSH 凭据没生效（这条**完全走 SSH，与 npm registry 无关**，能精确区分两类网络问题） |
+
+最后一条尤其有用：它同时验证了「GitHub 可达」和「私有仓库可读」，而这两件事正是后续 `dsh plugin add` 的前提。**六条全过，再继续 §2.3。**
+
+**装 Node / pnpm：**
 
 ```powershell
 # Node.js LTS（>= 24）从 https://nodejs.org 安装
