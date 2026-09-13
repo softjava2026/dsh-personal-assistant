@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /** 与 package.json 的 version 保持一致（`npm run check` 会校验）。 */
-export const PLUGIN_VERSION = "0.1.1";
+export const PLUGIN_VERSION = "0.1.2";
 
 /** 本插件注入消息的 source 标识，用于历史去重与回放识别。 */
 export const PLUGIN_SOURCE = "dsh-personal-assistant";

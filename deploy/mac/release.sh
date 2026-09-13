@@ -116,7 +116,7 @@ SHA="$(git rev-parse HEAD)"
 if [ -n "$NEW_VER" ]; then
   cat <<EOF
 
-✅ 已发布 v$NEW_VER（$SHA）
+✅ 已发布 v${NEW_VER}（${SHA}）
 
 ──────────────────────────────────────────────────────────────
 Windows host 上升级（自动解析最新 tag，无需手工搬 SHA）：
@@ -125,13 +125,13 @@ Windows host 上升级（自动解析最新 tag，无需手工搬 SHA）：
 
 指定版本：
 
-  .\deploy\windows\update-plugin.ps1 -Version v$NEW_VER
+  .\deploy\windows\update-plugin.ps1 -Version v${NEW_VER}
 ──────────────────────────────────────────────────────────────
 EOF
 else
   cat <<EOF
 
-✅ 已推送 $SHA（未发布 tag，Windows 侧不会自动升级）
+✅ 已推送 ${SHA}（未发布 tag，Windows 侧不会自动升级）
 
 需要发布时：
   deploy/mac/release.sh "发布说明" --publish patch
@@ -139,7 +139,7 @@ else
 ──────────────────────────────────────────────────────────────
 若要按确切 commit 部署（跳过 tag 流程）：
 
-  dsh plugin --profile web add "$REMOTE_URL#$SHA"
+  dsh plugin --profile web add "${REMOTE_URL}#${SHA}"
 ──────────────────────────────────────────────────────────────
 EOF
 fi
