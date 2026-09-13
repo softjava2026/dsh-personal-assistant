@@ -370,9 +370,13 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 
 **症状**：`Failed to resolve git dependency ...: git ls-remote failed: fatal: unable to access 'https://github.com/...': Failed to connect to github.com:443`
 
-**成因**：即使 spec 写的是 `git+ssh://`，pnpm 在解析阶段也可能走 **HTTPS**（因为它记录的 URL 要能在所有机器上工作）。而这台机器**SSH(22) 通、HTTPS(443) 被挡** —— 一个很常见的网络环境。
+**成因（已实测确认）**：**即使 spec 写成正确的 `git+ssh://git@github.com/owner/repo`，pnpm 仍会用 HTTPS 解析。** 报错里能看到 pnpm 把 spec 规范化成 `github:owner/repo`，随后调用 `git ls-remote https://github.com/owner/repo.git`。
 
-**pnpm 官方推荐的解法**是让 git 就地替换传输协议，而不改 spec：
+> 也就是说 **`git+ssh://` 前缀并不能让 pnpm 走 SSH** —— 它记录的 URL 要"能在所有机器上工作"，于是选了 HTTPS。这也解释了为什么同一条命令在 macOS 上能过：那台机器 HTTPS 通。
+>
+> 所以看到 `Failed to connect to github.com:443` 时，**不要怀疑自己的 URL 写错了** —— 那是 pnpm 主动选 HTTPS 的结果。
+
+**解法**（pnpm 官方推荐）：让 git 在传输层就地改写，而不改 spec：
 
 ```powershell
 git config --global url."git@github.com:".insteadOf "https://github.com/"
@@ -380,11 +384,21 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 这会让**所有** `https://github.com/...` 在 git 层被改写成 `git@github.com:...`，走 SSH。
 
-验证改写已生效：
+**验证改写确实生效** —— 下面这条 URL 走 HTTPS、本该失败，改写后应该成功：
 
 ```powershell
-git config --global --get-regexp "url\..*insteadOf"
+git ls-remote --tags --refs https://github.com/softjava2026/dsh-personal-assistant.git
 ```
+
+能看到 `refs/tags/v0.1.1` 与 `refs/tags/v0.1.2` 才算生效。（`git config --global --get-regexp "url\..*insteadOf"` 只能证明配置**写进去了**，不能证明它**被应用**。）
+
+**若 insteadOf 也不行**（例如 SSH 同样被挡），还有一条完全绕开 git 的路：在 Mac 上 `npm pack` 打出 `.tgz`，传到 Windows 后
+
+```powershell
+dsh plugin --profile web add .\dsh-personal-assistant-0.1.2.tgz
+```
+
+pnpm 支持本地 tarball，全程不碰网络。代价是失去"GitHub 是唯一通道"的简洁性，只作为最后手段。
 
 > **副作用要知道**：这是全局配置，影响这台机器上所有 git 操作。若以后有仓库只能用 HTTPS+token 访问（没有对应 SSH 权限），会被这条规则挡到 —— 那时用 `git config --global --unset url."git@github.com:".insteadOf` 移除即可。
 
