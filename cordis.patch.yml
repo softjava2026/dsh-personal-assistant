@@ -1,0 +1,20 @@
+# DSH profile patch layer for the personal-assistant bundle.
+# Loader patch: insert a plugin group that isolates the `personalAssistant`
+# service and mounts the runtime plugin with its default config.
+# (结构对齐 @openviking/dsh-memory-plugin 的 cordis.patch.yml)
+- insert:
+    - id: personal-assistant
+      name: '@deepseek-ai/cordis-plugin-group'
+      group: true
+      isolate:
+        personalAssistant: true
+      config:
+        - id: personal-assistant-runtime
+          name: 'dsh-personal-assistant'
+          config:
+            # 笔记存储路径；null = 默认 ~/.dsh/storages/pa-notes.sqlite
+            noteStorePath: null
+            # 主动智能开关（每日摘要 / 场景提醒）
+            proactiveEnabled: true
+            dailyDigestEnabled: true
+            proactiveTokenBudget: 800

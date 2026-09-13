@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 日志与本地数据
+*.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# 编辑器
+.vscode/
+.idea/
+
+# 测试产物
+test/tmp/

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: check & smoke (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # node:sqlite 在 Node 24+ 无需 flag；Node 22 需 --experimental-sqlite，
+        # 因此 CI 只跑 24。
+        node-version: ['24.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: 语法检查 + 版本一致性
+        run: npm run check
+
+      - name: 笔记 MCP 协议冒烟
+        run: npm run test:mcp
+
+      - name: 主动摘要冒烟
+        run: npm run test:digest
+
+      # test:apply 需要 DSH 宿主提供的 peer 依赖（@deepseek-ai/dsh-*），
+      # CI 里没有，故不在流水线内运行；本地可用 DSH 的 node_modules 跑：
+      #   ln -sfn "$(npm root -g)/@deepseek-ai/dsh/node_modules" ./node_modules
+      #   npm run test:apply

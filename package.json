@@ -1,0 +1,70 @@
+{
+  "name": "dsh-personal-assistant",
+  "version": "0.1.0",
+  "description": "个人智慧助手 bundle for DeepSeek Harness（编排层：记忆 + 日程 + 待办 + 笔记 + 主动智能）",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "config.mjs",
+    "runtime.mjs",
+    "skills.mjs",
+    "mcp.mjs",
+    "digest.mjs",
+    "servers/",
+    "skills/",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "check": "for f in *.mjs servers/*.mjs test/*.mjs; do node --check \"$f\" || exit 1; done && npm run check:version",
+    "check:version": "node --input-type=module -e \"import {readFileSync} from 'node:fs'; const {PLUGIN_VERSION} = await import('./config.mjs'); const v = JSON.parse(readFileSync('package.json','utf8')).version; if (PLUGIN_VERSION !== v) throw new Error('PLUGIN_VERSION ' + PLUGIN_VERSION + ' != package.json version ' + v); console.log('version ok', v);\"",
+    "test": "npm run test:mcp && npm run test:digest",
+    "test:mcp": "node servers/notes-mcp.mjs < test/notes-mcp.input.jsonl",
+    "test:digest": "node test/digest.smoke.mjs",
+    "test:apply": "node test/apply.smoke.mjs",
+    "prepublishOnly": "npm run check && npm test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-mcp-client": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-skill-filesystem": ">=0.1.0-rc.6 <0.2.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "personal-assistant",
+    "agent",
+    "proactive",
+    "mcp",
+    "skill"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/softjava2026/dsh-personal-assistant.git"
+  },
+  "homepage": "https://github.com/softjava2026/dsh-personal-assistant#readme",
+  "bugs": {
+    "url": "https://github.com/softjava2026/dsh-personal-assistant/issues"
+  },
+  "author": "softjava2026"
+}
