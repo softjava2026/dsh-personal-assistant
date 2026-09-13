@@ -170,14 +170,19 @@ Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
   ```powershell
   Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
   ```
-- `False` → 生成一把：
+- `False` → 生成一把。**用下面的非交互写法，不要用裸的 `ssh-keygen`**：
   ```powershell
-  ssh-keygen -t ed25519 -C "dsh-host-windows"
-  # 一路回车；passphrase 必须留空
+  New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.ssh" | Out-Null
+  ssh-keygen -t ed25519 -C "dsh-host-windows" -f "$env:USERPROFILE\.ssh\id_ed25519" -N ""
   Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
   ```
 
-> **passphrase 必须留空。** 这是给常驻服务用的密钥，设了密码短语之后没人能交互输入，开机自启的计划任务会**静默失败** —— 而且失败得很难查。
+  - `-f` 指定保存路径、`-N ""` 指定空口令 —— **两个提示符都被消掉，命令不会停下来等人输入**
+  - 若仍提示 `already exists. Overwrite (y/n)?`，输入 `n`（已有密钥就够用），再单独执行 `Get-Content`
+
+> ⚠️ **失败模式（真实踩过）**：把 `ssh-keygen -t ed25519 -C "..."` 和下一行 `Get-Content ...` 一起粘贴。`ssh-keygen` 是交互式的，会把**后续每一行都当成对提示符的回答** —— 于是它试图把密钥存到一个名为 `Get-Content "$env:USERPROFILE\..."` 的非法路径，报 `Saving key ... failed: No such file or directory`，**密钥根本没生成**。看到这个报错别往权限上想，是输入被吃掉了。
+>
+> ⚠️ **passphrase 必须留空。** 这是给常驻服务用的密钥，设了密码短语之后没人能交互输入，开机自启的计划任务会**静默失败** —— 而且失败得很难查。
 
 **第 3 步：把公钥加到 GitHub**
 
