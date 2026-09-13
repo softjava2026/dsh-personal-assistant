@@ -384,6 +384,14 @@ git config --global url."git@github.com:".insteadOf "https://github.com/"
 
 这会让**所有** `https://github.com/...` 在 git 层被改写成 `git@github.com:...`，走 SSH。
 
+**实测有效**（Windows + pnpm 12.4.1）：加上该配置后，同一条 `dsh plugin add` 从 `ERR_PNPM_GIT_RESOLVE_FAILED` 变为成功，15 秒完成。
+
+> **注意 pnpm 大版本差异。** 出问题的机器是 **pnpm 12.4.1**，而 macOS 上用的是 **pnpm 11.8.0** —— 同一条命令、同一个 `git+ssh://` spec，在 11.8.0 上**不需要** `insteadOf` 就能成功。
+>
+> 怀疑是 pnpm 12 改变了 git 依赖的解析方式（强制走 HTTPS 以生成"到处都能装"的 lockfile URL）。**这只是观察，没有做对照实验证实**，但实践含义明确：**dev 机与 host 的 pnpm 大版本不一致时，装插件的行为可能不同**。遇到 git 解析类失败优先怀疑这里。
+>
+> 排查版本：`pnpm -v`。要对齐可用 `npm install -g pnpm@11`。
+
 **验证改写确实生效** —— 下面这条 URL 走 HTTPS、本该失败，改写后应该成功：
 
 ```powershell
