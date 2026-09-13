@@ -123,22 +123,70 @@ npm install -g @deepseek-ai/dsh
 
 **推荐用 SSH + Deploy Key（只读）**，而不是把 PAT 写进 URL —— 后者会把 token 落进 profile 的 `package.json`。
 
-```powershell
-# 生成密钥（一路回车即可）
-ssh-keygen -t ed25519 -C "dsh-host-windows"
+**第 1 步：确认 `ssh` 命令存在**
 
-# 打印公钥
-Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+```powershell
+Get-Command ssh
 ```
 
-把输出的公钥加到 GitHub：**仓库 → Settings → Deploy keys → Add deploy key**，勾选 *Allow write access* 时**不要勾**（host 只需要读）。或者加到你的账号 SSH keys 里。
+报 `CommandNotFoundException` 说明没装 OpenSSH 客户端，用管理员 PowerShell 装：
 
-验证：
+```powershell
+Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+```
+
+**第 2 步：看有没有现成的密钥**
+
+```powershell
+Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
+```
+
+- `True` → 跳过第 3 步，直接打印公钥：
+  ```powershell
+  Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+  ```
+- `False` → 生成一把：
+  ```powershell
+  ssh-keygen -t ed25519 -C "dsh-host-windows"
+  # 一路回车；passphrase 必须留空
+  Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+  ```
+
+> **passphrase 必须留空。** 这是给常驻服务用的密钥，设了密码短语之后没人能交互输入，开机自启的计划任务会**静默失败** —— 而且失败得很难查。
+
+**第 3 步：把公钥加到 GitHub**
+
+复制上一步打印的整行（以 `ssh-ed25519` 开头），然后：**仓库 → Settings → Deploy keys → Add deploy key**，粘贴，标题随意（如 `dsh-host-windows`）。
+
+⚠️ **`Allow write access` 不要勾。** host 只需要读。
+
+（也可以加到账号级 SSH keys，但 Deploy key 是最小权限，更合适。）
+
+**第 4 步：验证**
 
 ```powershell
 ssh -T git@github.com
-# 期望："Hi softjava2026! You've successfully authenticated..."
 ```
+
+- 首次连接会问 `Are you sure you want to continue connecting?`，输入 `yes`
+- **成功时的输出**：`Hi softjava2026/dsh-personal-assistant! You've successfully authenticated, but GitHub does not provide shell access.`
+  - 用 **Deploy key** 时打招呼的是**仓库名**；用账号级 key 时才是用户名。两者都算成功。
+- ⚠️ **该命令成功时也返回 exit 1**，这是 GitHub 的正常行为，不是失败
+
+**第 5 步：回到体检**
+
+```powershell
+git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.git
+```
+
+期望看到：
+
+```
+<sha>   refs/tags/v0.1.1
+<sha>   refs/tags/v0.1.2
+```
+
+看到这两行，就说明「Mac 推 → Windows 拉」这条链通了 —— 那是整个部署方案的地基。
 
 ### 2.3 安装 dsh
 
