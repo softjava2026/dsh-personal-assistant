@@ -95,12 +95,29 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 
 最后一条尤其有用：它同时验证了「GitHub 可达」和「私有仓库可读」，而这两件事正是后续 `dsh plugin add` 的前提。**六条全过，再继续 §2.3。**
 
-**装 Node / pnpm：**
+**装 Node / Git / pnpm：**
+
+体检里任何一条报 `无法将"xxx"项识别为 cmdlet`，就是该工具没装或不在 PATH。Windows 10/11 自带 `winget`，优先用它：
 
 ```powershell
-# Node.js LTS（>= 24）从 https://nodejs.org 安装
-npm install -g pnpm
+winget install OpenJS.NodeJS.LTS     # Node.js LTS —— 必须是 24.x，见下方说明
+winget install Git.Git               # git ls-remote / dsh plugin 从 git 拉包都要它
 ```
+
+装完**必须关掉当前 PowerShell 窗口、重新开一个** —— 安装器改的是系统 PATH，已打开的进程不会刷新。这一步漏掉会让你以为"装了却还是找不到"。
+
+重开后验证并装剩下两个：
+
+```powershell
+node -v                # 期望 v24.x
+npm -v
+npm install -g pnpm
+npm install -g @deepseek-ai/dsh
+```
+
+> **为什么必须是 Node 24 而不是 latest：** 插件的 `engines` 是 `^22.19.0 || >=24`，且用了内置的 `node:sqlite`（Node 22.5 才引入，22 上还需 `--experimental-sqlite` flag，24+ 免 flag）。CI 也只跑 24.x。装 Node 26 当前版虽然满足 `>=24`，但没必要冒新版本兼容风险 —— 跟 CI 对齐最稳。
+>
+> `winget` 不可用（旧版 Windows）时，从 https://nodejs.org 下 LTS 安装包，安装时保持"Add to PATH"勾选。
 
 ### 2.2 给 Windows 配 GitHub 访问（仓库是私有的）
 
