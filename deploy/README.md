@@ -22,29 +22,48 @@
 
 ---
 
-## 1. Mac 侧：发布
+## 1. Mac 侧：开发与发布
+
+两种模式，都用 `deploy/mac/release.sh`：
+
+### 1.1 日常提交（不发布）
 
 ```bash
 cd ~/deepseek-harness-workspace/open-assistant/dsh-personal-assistant
-
-# 1. 自检（当前 9 个文件语法 + 版本一致性）
-npm run check
-
-# 2. 冒烟测试
-npm test
-
-# 3. 提交并推送
-git add -A
-git commit -m "feat: ..."
-git push origin main
-
-# 4. 记下 SHA —— 下一步要用
-git rev-parse HEAD
+deploy/mac/release.sh "feat: 加入 xxx"
 ```
 
-> `npm run test:apply` 需要 peer 依赖，本地跑法见 `.github/workflows/ci.yml` 末尾注释（现在 CI 已有 windows-latest 矩阵，跨平台问题会在那里暴露）。
+等价于 `npm run check && npm test && git add -A && git commit && git push origin main`。
+**不产生 tag，Windows 侧不会自动升级** —— 适合"先推上去存着"的中间状态。
 
-**可选的发布助手**：`deploy/mac/release.sh` 把上面四步串起来，并打印 SHA。
+### 1.2 发布（产生 tag，Windows 才可升级）
+
+```bash
+deploy/mac/release.sh "发布说明" --publish patch     # 或 minor / major
+```
+
+比日常提交多做三件事：
+
+1. `npm version patch|minor|major --no-git-tag-version` 改 `package.json`
+2. **同步 `config.mjs` 里的 `PLUGIN_VERSION`** —— 这两个字面量由 `npm run check` 强制一致，只改一处会让 CI 直接红
+3. 复检通过后打 tag `vX.Y.Z` 并推送
+
+> **发布与提交的唯一区别就是 tag。** Windows 侧靠 `git ls-remote --tags` 找最新版本，所以只有打了 tag 才会被升级。
+
+### 1.3 手工步骤（脚本不可用时）
+
+```bash
+npm run check && npm test
+git add -A && git commit -m "..."
+npm version patch --no-git-tag-version
+# 手工把 config.mjs 里的 PLUGIN_VERSION 改成同一个版本号
+npm run check                       # 必须通过，否则不要打 tag
+git add -A && git commit -m "release vX.Y.Z"
+git tag -a vX.Y.Z -m "..."
+git push origin main && git push origin vX.Y.Z
+```
+
+> `npm run test:apply` 需要 peer 依赖，本地跑法见 `.github/workflows/ci.yml` 末尾注释（CI 现在已有 windows-latest 矩阵，跨平台问题会在那里暴露）。
 
 ---
 
@@ -226,28 +245,47 @@ netplwiz  →  取消勾选「要使用本计算机，用户必须输入用户�
 
 ---
 
-## 3. 日常更新
+## 3. 日常更新：Mac 发布 → Windows 升级
 
-Mac 推完新 commit 后，Windows 上：
+Mac 上发布后，Windows 上**一条命令**：
 
 ```powershell
-# 1. 取最新 SHA（Mac 上 git rev-parse HEAD，或在这里查）
-$Sha = "<new-sha>"
-
-# 2. 换版本
-dsh plugin --profile web add "git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git#$Sha"
-
-# 3. 重启
-Stop-ScheduledTask  -TaskName "dsh-web-host"
-Start-ScheduledTask -TaskName "dsh-web-host"
-
-# 4. 确认
-dsh --profile web --dump-config | Select-String "personal-assistant"
+cd C:\dsh-host\dsh-personal-assistant
+.\deploy\windows\update-plugin.ps1
 ```
 
-> 用 `dsh plugin update` 是**不行的** —— 依赖被钉在确切 SHA 上，`update` 不会移动它。必须重新 `add` 新的 SHA。
+它会：
 
-**可选的更新助手**：`deploy/windows/update-plugin.ps1 -Sha <sha>`。
+1. `git ls-remote --tags` 解析最新 semver tag（**无需 clone，也无需手工搬 SHA**）
+2. 比对当前已安装版本，相同就跳过（`-Force` 可强制重装）
+3. `dsh plugin --profile web add "<repo>#<tag>"`
+4. 校验 `--dump-config` 里确实有 `personal-assistant` —— **校验失败就不重启服务**，避免把好的版本停掉
+5. 重启计划任务
+
+常用变体：
+
+```powershell
+.\update-plugin.ps1 -Version v0.2.0   # 指定版本（回滚也用这个）
+.\update-plugin.ps1 -NoRestart        # 只换版本，不重启
+.\update-plugin.ps1 -Force            # 已是最新也重装
+```
+
+**手工等价命令**：
+
+```powershell
+dsh plugin --profile web add "git+ssh://git@github.com/softjava2026/dsh-personal-assistant.git#v0.2.0"
+
+Stop-ScheduledTask  -TaskName "dsh-web-host"
+Start-ScheduledTask -TaskName "dsh-web-host"
+```
+
+> 用 `dsh plugin update` 是**不行的** —— 依赖被钉在确切 tag 上，`update` 不会移动它。**回滚**同理：`-Version v0.1.0` 重新 add 即可。
+
+### 关于自动升级
+
+**不建议让 host 自动升级。** 升级要重启 `dsh web`，会打断正在跑的会话；新版本若出问题，代价是整个服务不可用。当前设计刻意保留"人工点一下"这一环。
+
+如果确实想省事，建议只做**通知**不做升级：每天 `git ls-remote` 比对一次，有新版就发一条华为推送给你（复用通道③），你自己挑时间升。
 
 ---
 
