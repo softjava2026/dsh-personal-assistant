@@ -120,6 +120,25 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 
 最后一条尤其有用：它同时验证了「GitHub 可达」和「私有仓库可读」，而这两件事正是后续 `dsh plugin add` 的前提。**六条全过，再继续 §2.3。**
 
+> **`pnpm -v` 报「因为在此系统上禁止运行脚本」怎么办？**
+>
+> 这说明 pnpm **已经装好了** —— 被拦的是 `C:\Users\<你>\AppData\Roaming\npm\pnpm.ps1` 这个 PowerShell 包装脚本，Windows 默认的 `Restricted` 执行策略不允许运行 `.ps1`。两条路：
+>
+> 1. **直接调 `.cmd` 版本**（不改任何设置）：`pnpm.cmd -v`
+> 2. **放开策略**（推荐，长期更顺手）：
+>    ```powershell
+>    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+>    ```
+>    `-Scope CurrentUser` 只影响当前账户、**不需要管理员**；`RemoteSigned` 允许本地脚本、要求下载来的脚本带签名 —— 这是微软推荐的常规档位。**不要**用 `Unrestricted` 或 `Bypass`。
+>
+> ⚠️ **但这个报错不会挡住 `dsh plugin add`。** DSH 调用 pnpm 的写法是：
+>
+> ```js
+> spawnSync("pnpm", args, { cwd: dir, stdio: "inherit", shell: process.platform === "win32" })
+> ```
+>
+> `shell: true` 让它走 `cmd.exe` 并命中 `pnpm.cmd`，而不是 `pnpm.ps1` —— **PowerShell 的执行策略对 cmd.exe 不生效**。所以可以先照常装插件，回头再决定要不要改策略。
+
 **装 Node / Git / pnpm：**
 
 体检里任何一条报 `无法将"xxx"项识别为 cmdlet`，就是该工具没装或不在 PATH。Windows 10/11 自带 `winget`，优先用它：
