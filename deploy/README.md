@@ -120,24 +120,29 @@ git ls-remote --tags --refs git@github.com:softjava2026/dsh-personal-assistant.g
 
 最后一条尤其有用：它同时验证了「GitHub 可达」和「私有仓库可读」，而这两件事正是后续 `dsh plugin add` 的前提。**六条全过，再继续 §2.3。**
 
-> **`pnpm -v` 报「因为在此系统上禁止运行脚本」怎么办？**
+> **`pnpm -v` / `dsh ...` 报「因为在此系统上禁止运行脚本」怎么办？**
 >
-> 这说明 pnpm **已经装好了** —— 被拦的是 `C:\Users\<你>\AppData\Roaming\npm\pnpm.ps1` 这个 PowerShell 包装脚本，Windows 默认的 `Restricted` 执行策略不允许运行 `.ps1`。两条路：
+> npm 全局安装的每个 CLI 都会生成**两个垫片**：`pnpm.cmd` + `pnpm.ps1`（`dsh` 同理）。**cmd.exe 用 `.cmd`，PowerShell 优先用 `.ps1`** —— 而 Windows 默认的 `Restricted` 执行策略不允许运行任何 `.ps1`。
 >
-> 1. **直接调 `.cmd` 版本**（不改任何设置）：`pnpm.cmd -v`
-> 2. **放开策略**（推荐，长期更顺手）：
+> 这解释了一个容易困惑的现象：同一条 `dsh --version`，在 cmd 里能跑、切到 PowerShell 就报错。**不是 dsh 坏了，是两者选的垫片不同。**
+>
+> **两条路，建议第 2 条：**
+>
+> 1. **临时绕过**：显式调 `.cmd` 版本 —— `pnpm.cmd -v`、`dsh.cmd --version`
+> 2. **放开策略**（推荐，而且后续防火墙 / 计划任务步骤本来就必须在 PowerShell 里做）：
 >    ```powershell
 >    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 >    ```
->    `-Scope CurrentUser` 只影响当前账户、**不需要管理员**；`RemoteSigned` 允许本地脚本、要求下载来的脚本带签名 —— 这是微软推荐的常规档位。**不要**用 `Unrestricted` 或 `Bypass`。
+>    `-Scope CurrentUser` 只影响当前账户、**不需要管理员**；`RemoteSigned` 允许本地脚本、要求下载来的脚本带签名 —— 微软推荐的常规档位。**不要**用 `Unrestricted` 或 `Bypass`。
 >
-> ⚠️ **但这个报错不会挡住 `dsh plugin add`。** DSH 调用 pnpm 的写法是：
+>    会提示确认，输 `Y`。验证：
+>    ```powershell
+>    Get-ExecutionPolicy -Scope CurrentUser    # 期望输出 RemoteSigned
+>    pnpm -v
+>    dsh --version
+>    ```
 >
-> ```js
-> spawnSync("pnpm", args, { cwd: dir, stdio: "inherit", shell: process.platform === "win32" })
-> ```
->
-> `shell: true` 让它走 `cmd.exe` 并命中 `pnpm.cmd`，而不是 `pnpm.ps1` —— **PowerShell 的执行策略对 cmd.exe 不生效**。所以可以先照常装插件，回头再决定要不要改策略。
+> 补充：DSH **内部**调用 pnpm 用的是 `spawnSync("pnpm", args, { shell: process.platform === "win32" })`，走 cmd.exe，本来就不受策略影响。**受影响的始终是你在 PowerShell 里手敲的那一层。**
 
 **装 Node / Git / pnpm：**
 
