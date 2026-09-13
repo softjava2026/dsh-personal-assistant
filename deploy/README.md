@@ -94,6 +94,40 @@ powershell
 
 > `dsh plugin add`（§2.4）**不需要**管理员权限，用普通 PowerShell 跑即可 —— 它只写 `%USERPROFILE%\.dsh\`。
 
+### 2.0.1 可选：把 DSH 数据目录放到 C 盘以外
+
+默认 `$DSH_HOME` 是 `%USERPROFILE%\.dsh`（即 `C:\Users\<你>\.dsh`）。要放到别的盘：
+
+```powershell
+[Environment]::SetEnvironmentVariable("DSH_HOME", "D:\DSH_workspace\.dsh", "User")
+```
+
+**解析优先级**（源码 `@deepseek-ai/dsh-home-paths`）：
+
+```
+显式传入的路径  >  $DSH_HOME  >  ~/.dsh
+```
+
+空值或纯空白的 `$DSH_HOME` 视为未设置；支持 `~`、`~/`、`~\` 前缀展开。
+
+> ⚠️ **必须在第一次 `dsh plugin add` 之前做。** profile 是在那一刻按 `$DSH_HOME\profiles\<name>` 创建的；之后再改环境变量，DSH 会去新位置找，而旧 profile 留在原地。
+
+要点：
+
+- **改完必须关掉 PowerShell 重开** —— 环境变量不会热更新。
+- 用 `[Environment]::SetEnvironmentVariable(..., "User")` 而**不是 `setx`**：前者对含空格/特殊字符的值更可靠，也没有 1024 字符截断问题。
+- 设成 **User 级**，计划任务（AtLogOn + 当前用户）能继承 ✓。但若把任务改成以 `SYSTEM` 或别的账户运行，就继承不到了 —— 与 §2.10 里那个陷阱同源。
+- `$DSH_HOME` 下有 `profiles/`、`storages/`、`sessions/`、`settings.yaml`、`.credentials.yaml` —— **全部**跟着搬。
+- pnpm 的内容寻址 store 默认在 `%LOCALAPPDATA%\pnpm`（仍在 C 盘）。它只是缓存，**可以不动**；非要一起搬就设 `PNPM_HOME` 并用 `pnpm config set store-dir`。
+
+**如果已经在 C 盘初始化过了**，最干净的做法是删掉重来：
+
+```powershell
+Remove-Item -Recurse -Force "C:\Users\<你>\.dsh"
+```
+
+> **为什么建议删而不是移动**：那份 profile 是 pnpm 装出来的，`node_modules` 里可能含**硬链接**（pnpm 的默认去重手段），而**硬链接无法跨盘**，直接移动会得到一份行为不确定的副本。而 profile 是 DSH 会自动重建的（见 §2.4），删掉没有损失。此时它通常也还没装成功任何东西。
+
 ### 2.1 环境体检（只读，**先跑这个**）
 
 六条命令**都不改变系统状态**，跑完把输出贴出来即可定位问题。别急着装东西。
