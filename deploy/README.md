@@ -466,13 +466,47 @@ powercfg /h off                           # 关闭休眠（同时关掉"快速�
 - 笔记本另设"合盖不睡眠"
 - 关闭"按电源按钮睡眠"
 
-### 2.8 远程访问 —— 两条路，**优先走插件**
+### 2.8 远程访问 —— **不要走 VPN 这条路**
 
-**先给结论：只是想让鸿蒙手机用上 DSH，就不要装 Tailscale。**
+**先给结论：想让鸿蒙手机用上 DSH，任何"组网型 VPN"都不要装。** 原因是结构性的：
 
-官方 Tailscale **没有鸿蒙 NEXT 客户端**（[tailscale#18207](https://github.com/tailscale/tailscale/issues/18207) 至今仍是 feature request）。社区移植 [`flypigJ/Tailscale-OHOS`](https://github.com/flypigJ/Tailscale-OHOS) 自称 *"engineering MVP, **not a release-ready consumer application**"*，并且 **MagicDNS 被禁用** —— 而 `tailscale serve` 签发的证书是给 DNS 名字的，两者组合不起来。这条路要么自己去编译一个 MVP 客户端，要么走不通。
+**这一类工具全都要求手机装客户端，而鸿蒙 NEXT 恰恰是它们的空白区。**
 
-**推荐：`@linxin666/dsh-remote-web-ui` 插件。** 它把本手册前面所有手工步骤都产品化了：
+| 工具 | 桌面端 | 鸿蒙 NEXT 客户端 |
+|---|---|---|
+| Tailscale | ✅ | ❌ 官方无（[#18207](https://github.com/tailscale/tailscale/issues/18207) 仍是 feature request）；社区 [Tailscale-OHOS](https://github.com/flypigJ/Tailscale-OHOS) 自称 *"engineering MVP, **not release-ready**"* 且 **MagicDNS 禁用** —— 与 `tailscale serve` 的 DNS 证书冲突 |
+| ZeroTier | ✅ | ❌ [官方兼容表](https://docs.zerotier.com/compatibility/) 里**完全没有鸿蒙**（Tier 1/2/3 都没有） |
+| NetBird | ✅ | ❌ 无 |
+| Headscale（自建控制面） | ✅ | ❌ 客户端仍然得用 Tailscale 的 |
+| 自建 WireGuard + [harmonyos-wg-client](https://github.com/wan0791/harmonyos-wg-client) | ✅ | ⚠️ 社区 v0.1.1：握手与加解密通过，但**「互联网路由」被 `VpnConfig.routes` API 阻塞** |
+
+> 那个 WireGuard 客户端有个微妙之处：它**不能路由公网流量**，但 **VPN 子网内可达** —— 而我们的需求恰恰只是"手机能到 Windows 那台机器"，所以**理论上够用**。代价是：自己编译 HAP、在家用路由器上做端口转发（WireGuard 需要可达入口）、并用一个 v0.1.1 的社区客户端承载全部访问。**不推荐，但可以备选。**
+
+**你真正需要的是「手机能打开一个网址」，不是 VPN。** 隧道类工具**手机侧零客户端**，浏览器即可 —— 鸿蒙不鸿蒙都无所谓。
+
+#### 两个 DSH 远程访问插件，各有取舍
+
+| | `@linxin666/dsh-remote-web-ui` | `dsh-webgate` |
+|---|---|---|
+| 内网访问 | ✅ 局域网绑定开关（自动维护防火墙） | ✅ 默认开启 + 二维码 |
+| 快速隧道 | ✅ `cloudflared` 随包分发 | ✅ 托管 cloudflared 进程 |
+| **固定主机名** | ✅ 中继 `https://<id>.dsh-market.com`（**经作者 Cloudflare Worker**）或自带域名命名隧道 | — |
+| **完全自建** | — | ✅ **frp + 自有 VPS + Caddy** |
+| **鉴权** | 扫码配对 + 设备会话（可逐个吊销） | **登录门户**（scrypt 密码 + 30 天 Cookie + 每 IP 限速） |
+| 手机体验 | ✅ **竖屏触控适配层**（手势/触控目标/隐藏桌面工具面） | 仅兼容性修复（UUID polyfill 等） |
+| 要求 | 无 | frp 模式需**一台公网 VPS + 域名** |
+
+选法：
+
+- **不想花钱、要手机体验好** → `dsh-remote-web-ui`，但接受"固定域名中继经第三方"
+- **要流量完全自主** → `dsh-webgate` + VPS + frp + Caddy + 登录门户
+- **只在家用** → 任选其一，只开内网
+
+> ⚠️ **不要同时装两个。** 它们都在改 webserver 绑定、connection 信任列表和客户端注入，功能面重叠 —— 大概率互相打架。选一个。
+
+### 2.8.1 推荐路径：`@linxin666/dsh-remote-web-ui`
+
+它把本手册前面所有手工步骤都产品化了：
 
 | 本手册手工做的 | 插件已有 |
 |---|---|
