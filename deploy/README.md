@@ -428,25 +428,75 @@ dsh --profile web --dump-config | Select-String -Context 0,8 "personal-assistant
 
 能看到 `personal-assistant-runtime` 组和配置项即为成功。
 
-### 2.6 防火墙 —— **不需要手动配置**
+### 2.6 绑定地址 —— **有个双层夹击，只能改配置**
 
-因为走 `tailscale serve`（见 §2.8），**`dsh web` 只监听 `127.0.0.1`，不碰 `0.0.0.0`** —— 局域网里的设备从网络层就连不上它。暴露给 tailnet 的只有 Tailscale 自己监听的 443，而它的安装程序已经配好了自己的防火墙规则。
+**先记住这个坑：`dsh web --host 0.0.0.0` 会被直接拒绝。**
 
-**所以不需要 `New-NetFirewallRule`，也不会弹 Defender 授权框。**
+```
+error: --host 0.0.0.0 is intentionally not supported yet for safety:
+       it would expose remote code execution to the network; use 127.0.0.1 instead
+```
 
-> ⚠️ **不要用 `--host 0.0.0.0`。** 那会让 dsh 监听所有网卡、把服务暴露给整个局域网，然后再想用防火墙拦回来 —— 等于自己制造风险再去弥补。Tailscale 官方文档也明确建议后端服务**只监听 localhost**：
+原因是两层校验互相咬死：
+
+| 层 | 实现位置 | 接受什么 |
+|---|---|---|
+| CLI | `dsh-web-app/lib/startup.js` — `if (options.host === "0.0.0.0") program.error(...)` | 除 `0.0.0.0` 外都收，但下一层会拒 |
+| webserver | `dsh-host-webserver/lib/index.js` — `host: z.union([z.const("127.0.0.1"), z.const("0.0.0.0")]).required()` | **只有这两个值** |
+
+于是命令行**无路可走**：`0.0.0.0` 被 CLI 拦，具体 IP（如 `100.91.230.1`）被 schema 拦。**唯一合法入口是配置层。**
+
+**改 profile 的补丁文件** —— `$DSH_HOME/profiles/<name>/cordis.patch.yml`（默认内容是空数组 `[]`，要整个替换）：
+
+```yaml
+- id: webserver
+  config:
+    host: 0.0.0.0
+    port: 43120
+    compression: gzip
+    compressionLevel: 1
+    compressionThresholdBytes: 1024
+```
+
+> ⚠️ **补丁条目是整体替换 `config`，不是合并。**
 >
-> > it's best practice to only have the service listen on localhost. Otherwise, any user that can call your service directly (rather than with the Serve URL) could trivially provide their own values for these HTTP headers.
+> 实测（`--dump-config` 对比）：只写 `host: 0.0.0.0` 会让 `port` / `compression` / `compressionLevel` / `compressionThresholdBytes` **全部消失**，随后 schema 校验失败。**每个键都必须重写一遍。**
+
+改完**必须重启** `dsh web`（补丁只在启动时读一次）。启动命令**不再需要 `--host` / `--port`**：
+
+```powershell
+dsh web --no-open --trusted-host <Tailscale IP>:43120
+```
+
+**怎么确认生效** —— 启动日志那行 `dsh web: ...` 会多出一个 `(LAN: ...)` 段。源码里 `lanUrl` **只在 `bindHost === "0.0.0.0"` 时才计算**：
+
+```
+dsh web: http://127.0.0.1:43120/?token=xxx (LAN: http://100.91.230.1:43120/?token=xxx)
+```
+
+**而且 `(LAN:)` 里给的往往正是你要的地址** —— 它取 `networkInterfaces()` 里第一个非回环 IPv4，装了 Tailscale 的机器常常就是那个 `100.x`。可以直接照抄给手机，不用自己拼。
+
+再确认监听：
+
+```powershell
+netstat -ano | findstr 43120     # 期望 0.0.0.0:43120，而不是 127.0.0.1:3080
+```
+
+#### 防火墙
+
+绑 `0.0.0.0` 之后**可能**需要入站规则。**先试，连不上再加**（需要管理员 PowerShell）：
+
+```powershell
+New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
+  -Direction Inbound -Protocol TCP -LocalPort 43120 `
+  -RemoteAddress 100.64.0.0/10 -Action Allow
+```
+
+`100.64.0.0/10` 是 Tailscale 的 CGNAT 网段 —— **tailnet 内的设备能连，局域网被挡住**。
+
+> **副作用要知道**：`0.0.0.0` 意味着 dsh 监听所有网卡。靠上面这条规则把来源收敛到 tailnet，是这个方案里唯一的安全边界 —— **规则千万别写成 `-RemoteAddress Any`**。
 >
-> **唯一需要 `0.0.0.0` + 防火墙规则的情况**：不打算用 `tailscale serve`，直接让手机连 `http://<内网IP>:43120`。那条路是明文 HTTP、无 TLS，且 dsh 自己的 cookie 不带 `Secure`，只在完全可信的内网里勉强可接受：
->
-> ```powershell
-> New-NetFirewallRule -DisplayName "dsh web (tailnet only)" `
->   -Direction Inbound -Protocol TCP -LocalPort 43120 `
->   -RemoteAddress 100.64.0.0/10 -Action Allow
-> ```
->
-> `100.64.0.0/10` 是 Tailscale 的 CGNAT 网段。走了这条路才需要勾"专用网络"的 Defender 授权框（**绝不勾"公用网络"**）。
+> 更彻底的替代是**保持回环 + 本地反向代理**：让一个小代理监听 Tailscale IP 并转发到 `127.0.0.1:3080`。这样 dsh 始终只监听回环，连防火墙规则都不需要。代价是多一个常驻进程。
 
 ### 2.7 电源与系统更新 —— 否则 host 会随机离线
 
