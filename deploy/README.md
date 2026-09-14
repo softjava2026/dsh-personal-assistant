@@ -669,40 +669,80 @@ dsh web --host 127.0.0.1 --port 43120 --no-open --trusted-host $TsName *> D:\DSH
 
 ### 2.10 注册开机自启
 
-**必须用 `-AtLogOn` 而不是 `-AtStartup`**，这一点很容易踩：
+#### 推荐：启动文件夹 + 自愈循环（**实测可用**）
 
-| 方案 | 问题 |
-|---|---|
-| `-AtStartup` + 指定用户 | 启动触发的任务以特定用户身份运行**需要存储密码**，否则注册失败 |
-| `-AtStartup` + `SYSTEM` | `%USERPROFILE%` 会指向 SYSTEM 的 profile，于是 `~/.dsh` 解析到 `systemprofile\.dsh` —— **插件、凭据、会话全都找不到** |
-| **`-AtLogOn` + 当前用户** ✅ | 无需密码、路径正确。代价是需要配自动登录（或用 NSSM 注册成服务） |
+**不要用 `Register-ScheduledTask`。** 在实测的那台 Windows 上，它稳定报 `HRESULT 0x800706be`（`RPC_S_CALL_FAILED`）—— 这是任务计划 CIM 提供程序的通信故障，与命令写法无关（`$Action`/`$Trigger`/`$Settings` 三个对象都构造成功，变量非空，仍然失败）。
 
-```powershell
-$ArgLine  = "web --host 127.0.0.1 --port 43120 --no-open --trusted-host <machine>.<tailnet>.ts.net"
-$Action   = New-ScheduledTaskAction -Execute "dsh" -Argument $ArgLine
-$Trigger  = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERNAME"
-$Settings = New-ScheduledTaskSettingsSet -RestartCount 3 `
-  -RestartInterval (New-TimeSpan -Minutes 1) `
-  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-  -ExecutionTimeLimit ([TimeSpan]::Zero)
+退而求其次的 `schtasks /Create` 在同一台机器上**静默失败**：不打印成功信息、不报错，`schtasks /Query` 随后说"找不到指定的文件"。两条路都不可靠。
 
-Register-ScheduledTask -TaskName "dsh-web-host" -Action $Action -Trigger $Trigger `
-  -Settings $Settings -RunLevel Highest
+**可靠的做法是绕开 Task Scheduler 本身：**
+
+**① 写一个带重启循环的包装脚本**（`D:\DSH_workspace\run-dsh-web.cmd`）：
+
+```bat
+@echo off
+:loop
+"C:\Users\<你>\AppData\Roaming\npm\dsh.cmd" web --no-open --trusted-host <Tailscale IP>:43120 >> "D:\DSH_workspace\dsh-web.log" 2>&1
+timeout /t 5 /nobreak >nul
+goto loop
 ```
 
-`-ExecutionTimeLimit ([TimeSpan]::Zero)` = **不限时**，这一条很关键 —— 默认 3 天会被强杀。
+> - **必须用 `dsh.cmd` 的完整路径** —— PowerShell 里写 `dsh` 会命中 `dsh.ps1`，计划任务/批处理需要 `.cmd`。
+> - `>>` 重定向到日志是必需的：批处理没有可见输出，**启动失败时你才有东西可查**。
+> - `:loop` + `timeout` + `goto loop` 就是**失败自动重启** —— 不依赖 Task Scheduler 的重启策略。
 
-配套还要配**自动登录**（否则机器重启后停在登录界面，任务不会启动）：
+**② 放进启动文件夹**：
+
+```powershell
+Copy-Item "D:\DSH_workspace\run-dsh-web.cmd" -Destination ([Environment]::GetFolderPath("Startup")) -Force
+Get-ChildItem ([Environment]::GetFolderPath("Startup")) | Select-Object Name
+```
+
+**③ 立刻测试**（不必等重启）：
+
+```powershell
+Start-Process "D:\DSH_workspace\run-dsh-web.cmd"
+Start-Sleep -Seconds 15
+netstat -ano | findstr 43120        # 期望 0.0.0.0:43120 LISTENING
+```
+
+**这条路 vs 任务计划：**
+
+| | 启动文件夹 | 任务计划 |
+|---|---|---|
+| 依赖系统服务 | **无** | Task Scheduler（实测会坏） |
+| 72 小时强杀 | **无** | **有**（默认 `PT72H`，需额外改设置） |
+| 失败自动重启 | 包装脚本里的循环 | 需设置重启策略 |
+| 需要管理员 | 否 | 是 |
+| 状态可查询 | 只能看进程/日志 | `Get-ScheduledTask` |
+
+> ⚠️ **代价**：会有一个可见的控制台窗口。**别关它** —— 关了服务就停了（循环也一起死）。若要隐藏，可在启动文件夹放一个"最小化"快捷方式，或用 VBS 包装。
+
+#### 必须配套：自动登录
+
+无论用哪条路，触发时机都是**登录时**。所以：
 
 ```
 netplwiz  →  取消勾选「要使用本计算机，用户必须输入用户名和密码」
 ```
 
-如果需要真正的"未登录也运行"，改用 [NSSM](https://nssm.cc/) 把 `dsh web` 注册成 Windows 服务 —— 但此时必须显式设置 `DSH_HOME` 环境变量指向真实用户目录，否则会撞上上面 SYSTEM 的那个坑。
+**不做这一步，重启后机器停在登录界面，服务不会启动** —— 而且没有任何报错，只是连不上。这是"开机即服务"的必要条件。
 
-需要用**管理员** PowerShell 执行。首跑后到「任务计划程序」里确认状态，并检查 `D:\DSH_workspace\dsh-web.log`。
+#### 若坚持用任务计划
 
-**本脚本化**：`deploy\windows\setup-host.ps1` 把 §2.3–§2.10 串成一步（⚠️ 尚未在真实 Windows 上实测，首次部署建议先按本文手动走一遍）。
+**必须用 `-AtLogOn` 而不是 `-AtStartup`**：
+
+| 方案 | 问题 |
+|---|---|
+| `-AtStartup` + 指定用户 | 以特定用户身份运行**需要存储密码**，否则注册失败 |
+| `-AtStartup` + `SYSTEM` | `%USERPROFILE%` 指向 SYSTEM 的 profile，**`DSH_HOME` 这个 User 级环境变量也继承不到** —— 数据目录、凭据、插件全都找不到 |
+| `-AtLogOn` + 当前用户 ✅ | 无需密码、路径正确 |
+
+`-ExecutionTimeLimit ([TimeSpan]::Zero)` = **不限时**。默认是 `PT72H`，**3 天后 Windows 会无条件杀掉服务**，且不报错。
+
+如果需要真正的"未登录也运行"，用 [NSSM](https://nssm.cc/) 注册成 Windows 服务 —— 但必须显式给该服务设置 `DSH_HOME`，否则会撞上上面 SYSTEM 的那个坑。
+
+**本脚本化**：`deploy\windows\setup-host.ps1` 把 §2.3–§2.10 串成一步（⚠️ 尚未在真实 Windows 上实测，且其任务计划部分已知在上述环境下不可用 —— 首次部署请按本文手动走）。
 
 ---
 
